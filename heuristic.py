@@ -20,128 +20,74 @@ from __future__ import annotations
 
 from models import Deck
 
-# --- Weights: how much each raw metric matters. They all sit in [0, 1] and sum
-# to 1.0, so a deck that scores a perfect 1.0 on every metric gets a final 1.0.
-# A metric whose data isn't available yet is dropped from the average and its
-# weight is redistributed across the rest, so the score always stays in [0, 1].
+# How much each metric counts. They sum to 1.0, so a deck that scores a perfect
+# 1.0 on every metric gets a final 1.0.
 WEIGHTS = {
-    "avg_elixir": 0.15,
+    "avg_elixir": 0.10,
     "air_troops": 0.10,
     "buildings": 0.10,
     "total_hp": 0.15,
-    "total_dps": 0.15,
+    "total_dps": 0.20,
     "spells": 0.15,
     "win_conditions": 0.20,
 }
 assert abs(sum(WEIGHTS.values()) - 1.0) < 1e-9, "weights must sum to 1.0"
 
-# --- Calibration targets. These are rough starting points; tune them against
-# the real stat ranges once cards.csv is populated by scrape.ipynb. ---
-IDEAL_AVG_ELIXIR = 3.8     # the "sweet spot" average elixir cost
-ELIXIR_SPREAD = 2.0        # how far from ideal before the metric hits 0
+# Average elixir is minimized: full marks at CHEAP_ELIXIR or below, zero at
+# EXPENSIVE_ELIXIR or above.
+CHEAP_ELIXIR = 1.5
+EXPENSIVE_ELIXIR = 5.0
 
-IDEAL_BUILDINGS = 1.0      # ~1 defensive building is typical
+# Count metrics score best near an ideal and fall off linearly to zero SPREAD away.
+IDEAL_AIR_TROOPS = 2.0
+AIR_SPREAD = 3.0
+IDEAL_BUILDINGS = 1.0
 BUILDINGS_SPREAD = 2.5
-
-IDEAL_SPELLS = 2.0         # ~2 spells is typical
+IDEAL_SPELLS = 2.0
 SPELLS_SPREAD = 3.0
 
-IDEAL_AIR_TROOPS = 2.0     # ~1-2 air units helps cover anti-air threats
-AIR_SPREAD = 3.0
+# Total HP / DPS are maximized: full marks once the deck reaches this much.
+TARGET_TOTAL_HP = 20_000.0
+TARGET_TOTAL_DPS = 3_000.0
 
-TARGET_TOTAL_HP = 20_000.0   # deck total HP that earns a full HP score
-TARGET_TOTAL_DPS = 3_000.0   # deck total DPS that earns a full DPS score
-
-IDEAL_WIN_SCORE = 1.5      # weighted win-condition presence we aim for
-WIN_SPREAD = 1.5
-
-# How much each win-condition tier counts toward the weighted win score.
-WIN_TIER_WEIGHTS = {"primary": 1.0, "secondary": 0.6, "conditional": 0.3}
-
-
-def _clamp01(x: float) -> float:
-    return max(0.0, min(1.0, x))
-
-
-def _triangular(value: float, ideal: float, spread: float) -> float:
-    """Peaked score: 1.0 at `ideal`, falling linearly to 0 at `spread` away."""
-    return _clamp01(1.0 - abs(value - ideal) / spread)
-
-
-def _saturating(value: float, target: float) -> float:
-    """More-is-better: 0 at 0, rising linearly to 1.0 at `target`, capped there."""
-    if target <= 0:
-        return 0.0
-    return _clamp01(value / target)
-
-
-# --- Per-metric normalizers. Each maps a raw deck value into [0, 1], or returns
-# None when the underlying data isn't available yet (so the metric is skipped). ---
-
-def _norm_avg_elixir(deck: Deck) -> float | None:
-    return _triangular(deck.avg_elixir, IDEAL_AVG_ELIXIR, ELIXIR_SPREAD)
-
-
-def _norm_air_troops(deck: Deck) -> float | None:
-    return _triangular(len(deck.air_troops), IDEAL_AIR_TROOPS, AIR_SPREAD)
-
-
-def _norm_buildings(deck: Deck) -> float | None:
-    return _triangular(len(deck.buildings), IDEAL_BUILDINGS, BUILDINGS_SPREAD)
-
-
-def _norm_total_hp(deck: Deck) -> float | None:
-    stats = [c.hitpoints for c in deck.cards if c.hitpoints is not None]
-    if not stats:
-        return None  # scraped combat stats not loaded into cards.csv yet
-    return _saturating(sum(stats), TARGET_TOTAL_HP)
-
-
-def _norm_total_dps(deck: Deck) -> float | None:
-    stats = [c.damage_per_second for c in deck.cards if c.damage_per_second is not None]
-    if not stats:
-        return None  # scraped combat stats not loaded into cards.csv yet
-    return _saturating(sum(stats), TARGET_TOTAL_DPS)
-
-
-def _norm_spells(deck: Deck) -> float | None:
-    return _triangular(len(deck.spells), IDEAL_SPELLS, SPELLS_SPREAD)
-
-
-def _norm_win_conditions(deck: Deck) -> float | None:
-    # Weight each win condition by its tier (primary > secondary > conditional),
-    # then peak the score around IDEAL_WIN_SCORE: too few means no way to take a
-    # tower, too many means no elixir left for support cards.
-    win_score = sum(
-        WIN_TIER_WEIGHTS.get(c.win_condition, 0.0) for c in deck.cards
-    )
-    return _triangular(win_score, IDEAL_WIN_SCORE, WIN_SPREAD)
-
-
-_NORMALIZERS = {
-    "avg_elixir": _norm_avg_elixir,
-    "air_troops": _norm_air_troops,
-    "buildings": _norm_buildings,
-    "total_hp": _norm_total_hp,
-    "total_dps": _norm_total_dps,
-    "spells": _norm_spells,
-    "win_conditions": _norm_win_conditions,
-}
+# Win conditions: weight each card by its tier, then aim for an ideal total.
+IDEAL_WIN_SCORE = 1.5
+WIN_SPREAD = 1.0
+WIN_TIER_WEIGHTS = {"primary": 1.0, "secondary": 0.67, "conditional": 0.33}
 
 
 def score(deck: Deck) -> float:
-    # Weighted average of the normalized metrics. Metrics that return None are
-    # skipped and their weight is redistributed, so the result stays in [0, 1].
-    weighted_sum = 0.0
-    total_weight = 0.0
-    for name, normalize in _NORMALIZERS.items():
-        normalized = normalize(deck)
-        if normalized is None:
-            continue
-        weight = WEIGHTS[name]
-        weighted_sum += weight * normalized
-        total_weight += weight
+    """Score a legal deck in [0, 1] (higher is better) as a weighted average.
 
-    if total_weight == 0.0:
-        return 0.0
-    return weighted_sum / total_weight
+    Each metric is normalized to [0, 1] and combined using WEIGHTS. Total HP and
+    DPS are skipped -- and their weight shared across the other metrics -- until
+    combat stats are loaded into cards.csv.
+    """
+    metrics: dict[str, float] = {}
+
+    # Average elixir -- minimize it; cheaper decks cycle faster.
+    cheapness = (EXPENSIVE_ELIXIR - deck.avg_elixir) / (EXPENSIVE_ELIXIR - CHEAP_ELIXIR)
+    metrics["avg_elixir"] = max(0.0, min(1.0, cheapness))
+
+    # Air troops / buildings / spells -- best near an ideal count.
+    metrics["air_troops"] = max(0.0, 1.0 - abs(len(deck.air_troops) - IDEAL_AIR_TROOPS) / AIR_SPREAD)
+    metrics["buildings"] = max(0.0, 1.0 - abs(len(deck.buildings) - IDEAL_BUILDINGS) / BUILDINGS_SPREAD)
+    metrics["spells"] = max(0.0, 1.0 - abs(len(deck.spells) - IDEAL_SPELLS) / SPELLS_SPREAD)
+
+    # Total HP / DPS -- maximize them. Only scored once the stats exist.
+    hp = [c.hitpoints for c in deck.cards if c.hitpoints is not None]
+    if hp:
+        metrics["total_hp"] = min(1.0, sum(hp) / TARGET_TOTAL_HP)
+
+    dps = [c.damage_per_second for c in deck.cards if c.damage_per_second is not None]
+    if dps:
+        metrics["total_dps"] = min(1.0, sum(dps) / TARGET_TOTAL_DPS)
+
+    # Win conditions -- weight each card by tier, then aim for an ideal total.
+    win_score = sum(WIN_TIER_WEIGHTS.get(c.win_condition, 0.0) for c in deck.cards)
+    metrics["win_conditions"] = max(0.0, 1.0 - abs(win_score - IDEAL_WIN_SCORE) / WIN_SPREAD)
+
+    # Weighted average over whatever metrics we computed.
+    weighted_sum = sum(WEIGHTS[name] * value for name, value in metrics.items())
+    total_weight = sum(WEIGHTS[name] for name in metrics)
+    return weighted_sum / total_weight if total_weight else 0.0

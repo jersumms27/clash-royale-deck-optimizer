@@ -84,6 +84,8 @@ class CardPool:
             c.id for c in self.cards if not c.is_champion
         ]
         self.evolvable_ids: set[int] = {c.id for c in self.cards if c.has_evolution}
+        # Cards eligible for a hero slot (includes champions, which are heroes).
+        self.hero_set: set[int] = {c.id for c in self.cards if c.is_champion_hero}
 
     def __len__(self) -> int:
         return len(self.cards)
@@ -94,10 +96,19 @@ class CardPool:
 
 @dataclass(frozen=True)
 class Deck:
-    """8 cards plus the ids occupying evolution slots. Frozen so it's hashable."""
+    """8 cards plus the ids occupying the special slots. Frozen so it's hashable.
+
+    A card's *form* depends on which slot it's in:
+      - id in `evolved` -> evolved form (card must have an evolution)
+      - id in `hero`    -> hero form    (card must be a champion/hero)
+      - otherwise        -> base form
+    `evolved` and `hero` are disjoint; champions are always in `hero`. Heroes and
+    evolutions share one slot budget (the wild slot), enforced by config.slots_ok.
+    """
 
     cards: tuple[Card, ...]
     evolved: frozenset[int] = field(default_factory=frozenset)
+    hero: frozenset[int] = field(default_factory=frozenset)
 
     @property
     def avg_elixir(self) -> float:
@@ -110,6 +121,19 @@ class Deck:
     @property
     def evolved_cards(self) -> list[Card]:
         return [c for c in self.cards if c.id in self.evolved]
+
+    @property
+    def hero_cards(self) -> list[Card]:
+        """Cards in hero form (includes champions, which are always hero form)."""
+        return [c for c in self.cards if c.id in self.hero]
+
+    def form_of(self, card: Card) -> str:
+        """'evo', 'hero', or 'base' -- which form this card takes in the deck."""
+        if card.id in self.evolved:
+            return "evo"
+        if card.id in self.hero:
+            return "hero"
+        return "base"
 
     # --- composition by type ---
     @property
@@ -145,7 +169,11 @@ class Deck:
     @property
     def key(self) -> tuple:
         """Order-independent identity, used for fitness caching."""
-        return (tuple(sorted(c.id for c in self.cards)), tuple(sorted(self.evolved)))
+        return (
+            tuple(sorted(c.id for c in self.cards)),
+            tuple(sorted(self.evolved)),
+            tuple(sorted(self.hero)),
+        )
 
     def is_valid(self) -> tuple[bool, str]:
         ids = [c.id for c in self.cards]
@@ -153,15 +181,29 @@ class Deck:
             return False, f"has {len(ids)} cards, expected {config.DECK_SIZE}"
         if len(set(ids)) != len(ids):
             return False, "has duplicate cards"
-        if not config.slots_ok(len(self.evolved), len(self.champions)):
+        if not config.slots_ok(len(self.evolved), len(self.hero)):
             return False, (
                 f"slot rule violated: {len(self.evolved)} evolutions + "
-                f"{len(self.champions)} champions don't fit"
+                f"{len(self.hero)} heroes don't fit"
             )
+        if self.evolved & self.hero:
+            return False, "a card is in both an evolution and a hero slot"
+
+        by_id = {c.id: c for c in self.cards}
         for cid in self.evolved:
-            if cid not in set(ids):
+            card = by_id.get(cid)
+            if card is None:
                 return False, "an evolution slot references a card not in the deck"
-            card = self.cards[ids.index(cid)]
             if not card.has_evolution:
                 return False, f"{card.name} has no evolution available"
+        for cid in self.hero:
+            card = by_id.get(cid)
+            if card is None:
+                return False, "a hero slot references a card not in the deck"
+            if not card.is_champion_hero:
+                return False, f"{card.name} is not a champion/hero"
+        # Champions have no base form, so any champion in the deck must be hero form.
+        for card in self.cards:
+            if card.is_champion and card.id not in self.hero:
+                return False, f"{card.name} (champion) must occupy a hero slot"
         return True, "ok"

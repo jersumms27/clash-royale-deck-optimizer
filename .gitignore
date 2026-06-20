@@ -1,0 +1,9 @@
+# Secrets — never commit the API token (use token.txt.example as a template)
+token.txt
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Editor / OS
+.DS_Store

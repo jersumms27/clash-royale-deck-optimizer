@@ -542,12 +542,18 @@ input[type="range"]::-moz-range-thumb {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
 }
 
-.badge.evo { background: linear-gradient(180deg, #8ff6ff, var(--r-legendary)); }
+.badge.evo { background: linear-gradient(180deg, #e0c8ff, #b14cff); color: #2a0033; }
 .badge.champ { background: linear-gradient(180deg, #ffe98a, var(--gold)); color: #2a1d00; }
+.badge.hero { background: linear-gradient(180deg, #ffe98a, var(--gold)); color: #2a1d00; }
 .badge.evo-avail {
-  background: rgba(52, 214, 230, 0.18);
-  color: #9ff0fa;
-  border: 1px solid rgba(52, 214, 230, 0.5);
+  background: rgba(177, 76, 255, 0.18);
+  color: #d8bcff;
+  border: 1px solid rgba(177, 76, 255, 0.5);
+}
+.badge.hero-avail {
+  background: rgba(255, 210, 63, 0.18);
+  color: #ffe08a;
+  border: 1px solid rgba(255, 210, 63, 0.5);
 }
 
 .card .name {

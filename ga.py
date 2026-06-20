@@ -16,66 +16,79 @@ FitnessFn = Callable[[Deck], float]
 
 
 def _repair_card_ids(ids: list[int], pool: CardPool, rng: random.Random) -> list[int]:
-    """Coerce ids into DECK_SIZE distinct cards with at most MAX_CHAMPIONS champions."""
-    deduped: list[int] = []
-    seen: set[int] = set()
-    for cid in ids:
-        if cid not in seen:
-            seen.add(cid)
-            deduped.append(cid)
-    ids = deduped
+    """DECK_SIZE distinct cards, at most MAX_CHAMPIONS of them champions."""
+    ids = list(dict.fromkeys(ids))  # drop duplicates, keep order
 
     champs = [c for c in ids if c in pool.champion_set]
-    if len(champs) > config.MAX_CHAMPIONS:
-        keep = set(champs[: config.MAX_CHAMPIONS])
-        ids = [c for c in ids if c not in pool.champion_set or c in keep]
+    drop = set(champs[config.MAX_CHAMPIONS:])
+    ids = [c for c in ids if c not in drop][: config.DECK_SIZE]
 
-    ids = ids[: config.DECK_SIZE]
-
-    current = set(ids)
+    in_deck = set(ids)
+    num_champs = len(in_deck & pool.champion_set)
     while len(ids) < config.DECK_SIZE:
         cand = rng.choice(pool.all_ids)
-        if cand in current:
-            continue
-        if (
-            cand in pool.champion_set
-            and sum(c in pool.champion_set for c in ids) >= config.MAX_CHAMPIONS
-        ):
+        is_champ = cand in pool.champion_set
+        if cand in in_deck or (is_champ and num_champs >= config.MAX_CHAMPIONS):
             continue
         ids.append(cand)
-        current.add(cand)
+        in_deck.add(cand)
+        num_champs += is_champ
     return ids
 
 
-def _repair_evolutions(
-    deck_ids: list[int], evolved: set[int], pool: CardPool, rng: random.Random
-) -> frozenset[int]:
-    """Keep only evolvable cards in the deck, capped by the shared wild slot."""
-    legal = [cid for cid in evolved if cid in deck_ids and cid in pool.evolvable_ids]
-    num_champions = sum(1 for cid in deck_ids if cid in pool.champion_set)
-    cap = config.max_evolutions_allowed(num_champions)
-    if len(legal) > cap:
-        legal = rng.sample(legal, cap)
-    return frozenset(legal)
+def _repair_forms(
+    deck_ids: list[int],
+    evolved: set[int],
+    hero: set[int],
+    pool: CardPool,
+    rng: random.Random,
+) -> tuple[frozenset[int], frozenset[int]]:
+    """Coerce the requested evo/hero forms into a legal assignment.
+
+    Champions are always hero form; every other special card holds at most one
+    form; evolutions and heroes share the wild slot (config.slots_ok). Optional
+    forms beyond the budget are dropped at random so the GA keeps exploring.
+    """
+    in_deck = set(deck_ids)
+    final_evo: set[int] = set()
+    final_hero = {cid for cid in deck_ids if cid in pool.champion_set}  # mandatory
+
+    requests = [("evo", c) for c in evolved if c in pool.evolvable_ids]
+    requests += [("hero", c) for c in hero if c in pool.hero_set]
+    rng.shuffle(requests)  # unbiased trimming when the budget is tight
+    for form, cid in requests:
+        if cid not in in_deck or cid in final_evo or cid in final_hero:
+            continue  # not in this deck, or already holds a form
+        if form == "evo" and config.slots_ok(len(final_evo) + 1, len(final_hero)):
+            final_evo.add(cid)
+        elif form == "hero" and config.slots_ok(len(final_evo), len(final_hero) + 1):
+            final_hero.add(cid)
+    return frozenset(final_evo), frozenset(final_hero)
 
 
 def _build_deck(
-    ids: list[int], evolved: set[int], pool: CardPool, rng: random.Random
+    ids: list[int],
+    evolved: set[int],
+    hero: set[int],
+    pool: CardPool,
+    rng: random.Random,
 ) -> Deck:
     ids = _repair_card_ids(ids, pool, rng)
-    evo = _repair_evolutions(ids, evolved, pool, rng)
-    return Deck(cards=tuple(pool.get(cid) for cid in ids), evolved=evo)
+    evo, her = _repair_forms(ids, evolved, hero, pool, rng)
+    return Deck(cards=tuple(pool.get(cid) for cid in ids), evolved=evo, hero=her)
 
 
 def random_deck(pool: CardPool, rng: random.Random) -> Deck:
     ids = _repair_card_ids(rng.sample(pool.all_ids, config.DECK_SIZE), pool, rng)
-    evolvable_in_deck = [cid for cid in ids if cid in pool.evolvable_ids]
-    rng.shuffle(evolvable_in_deck)
-    cap = config.max_evolutions_allowed(
-        sum(1 for cid in ids if cid in pool.champion_set)
-    )
-    evolved = set(evolvable_in_deck[: rng.randint(0, cap)])
-    return _build_deck(ids, evolved, pool, rng)
+    evolvable = [cid for cid in ids if cid in pool.evolvable_ids]
+    hero_eligible = [
+        cid for cid in ids if cid in pool.hero_set and cid not in pool.champion_set
+    ]
+    rng.shuffle(evolvable)
+    rng.shuffle(hero_eligible)
+    evolved = set(evolvable[: rng.randint(0, len(evolvable))])
+    hero = set(hero_eligible[: rng.randint(0, len(hero_eligible))])
+    return _build_deck(ids, evolved, hero, pool, rng)
 
 
 class GeneticAlgorithm:
@@ -120,25 +133,46 @@ class GeneticAlgorithm:
     def _crossover(self, a: Deck, b: Deck) -> Deck:
         gene_pool = list(a.card_ids | b.card_ids)
         self.rng.shuffle(gene_pool)
-        return _build_deck(gene_pool, set(a.evolved | b.evolved), self.pool, self.rng)
+        return _build_deck(
+            gene_pool,
+            set(a.evolved | b.evolved),
+            set(a.hero | b.hero),
+            self.pool,
+            self.rng,
+        )
+
+    def _flip_form(self, ids, claim, other, eligible) -> None:
+        """Toggle a random eligible card's membership in `claim`, clearing `other`
+        (so an evo+hero card like Knight flips between its two forms)."""
+        targets = [cid for cid in ids if cid in eligible]
+        if not targets:
+            return
+        cid = self.rng.choice(targets)
+        if cid in claim:
+            claim.discard(cid)
+        else:
+            claim.add(cid)
+            other.discard(cid)
 
     def _mutate(self, deck: Deck) -> Deck:
         ids = [c.id for c in deck.cards]
         evolved = set(deck.evolved)
-        if self.rng.random() < 0.7:
+        hero = set(deck.hero)
+        roll = self.rng.random()
+        if roll < 0.6:
+            # Replace a card; drop whatever form the outgoing card held.
             idx = self.rng.randrange(len(ids))
             evolved.discard(ids[idx])
-            for _ in range(50):
-                cand = self.rng.choice(self.pool.all_ids)
-                if cand not in ids:
-                    ids[idx] = cand
-                    break
+            hero.discard(ids[idx])
+            ids[idx] = self.rng.choice([c for c in self.pool.all_ids if c not in ids])
+        elif roll < 0.8:
+            self._flip_form(ids, evolved, hero, self.pool.evolvable_ids)
         else:
-            evolvable = [cid for cid in ids if cid in self.pool.evolvable_ids]
-            if evolvable:
-                target = self.rng.choice(evolvable)
-                evolved.discard(target) if target in evolved else evolved.add(target)
-        return _build_deck(ids, evolved, self.pool, self.rng)
+            # Champions are forced hero by the repair, so only flip other heroes.
+            self._flip_form(
+                ids, hero, evolved, self.pool.hero_set - self.pool.champion_set
+            )
+        return _build_deck(ids, evolved, hero, self.pool, self.rng)
 
     def run(
         self, on_generation: Callable[[int, list[Deck]], None] | None = None

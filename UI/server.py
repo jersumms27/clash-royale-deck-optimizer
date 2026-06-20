@@ -44,8 +44,8 @@ _MIME = {
 }
 
 # Safety rails so the UI sliders can never ask the engine for something absurd.
-POP_MIN, POP_MAX = 2, 500
-GEN_MIN, GEN_MAX = 1, 1000
+POP_MIN, POP_MAX = 2, 10000
+GEN_MIN, GEN_MAX = 1, 10000
 
 
 # --------------------------------------------------------------------------- #
@@ -126,13 +126,17 @@ def deck_payload(deck, fitness: float) -> dict:
                 "rarity": card.rarity,
                 "type": card.type,
                 "is_champion": card.is_champion,
+                # form: "evo", "hero", or "base" -- decides the badge/slot in the UI.
+                "form": deck.form_of(card),
                 "is_evolved": card.id in deck.evolved,
+                "is_hero": card.id in deck.hero,
             }
         )
     return {
         "cards": cards,
         "avg_elixir": round(deck.avg_elixir, 2),
         "num_evolutions": len(deck.evolved_cards),
+        "num_heroes": len(deck.hero_cards),
         "num_champions": len(deck.champions),
         "fitness": fitness,
         "valid": ok,

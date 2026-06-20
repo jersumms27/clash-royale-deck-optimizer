@@ -13,17 +13,16 @@ from heuristic import score
 def print_deck(deck, fitness: float) -> None:
     print(f"\n=== Best deck  (fitness {fitness:.4f}) ===")
     for card in sorted(deck.cards, key=lambda c: (c.elixir, c.name)):
-        tags = []
-        if card.id in deck.evolved:
-            tags.append("EVO")
         if card.is_champion:
-            tags.append("CHAMPION")
-        suffix = f"   [{', '.join(tags)}]" if tags else ""
+            tag = "CHAMPION"
+        else:
+            tag = {"evo": "EVO", "hero": "HERO"}.get(deck.form_of(card), "")
+        suffix = f"   [{tag}]" if tag else ""
         print(f"   {card.elixir}  {card.name}{suffix}")
     print(f"   ---")
     print(f"   avg elixir : {deck.avg_elixir:.2f}")
     print(
-        f"   evolutions : {len(deck.evolved_cards)}   champions: {len(deck.champions)}"
+        f"   evolutions : {len(deck.evolved_cards)}   heroes: {len(deck.hero_cards)}"
     )
 
 

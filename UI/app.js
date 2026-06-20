@@ -56,7 +56,7 @@ function initials(name) {
 }
 
 /* ----------------------- shared card renderer ------------------------ */
-// opts: { evolved, champion, evoAvailable, clickable, onClick }
+// opts: { evolved, hero, champion, evoAvailable, heroAvailable, clickable, onClick }
 function cardEl(card, opts = {}) {
   const node = el("div", "card" + (opts.clickable ? " clickable" : ""));
   node.dataset.rarity = card.rarity;
@@ -65,11 +65,16 @@ function cardEl(card, opts = {}) {
   elixir.textContent = card.elixir;
   node.appendChild(elixir);
 
-  // badges
+  // badges. A card takes one form: champions show the crown, other heroes show
+  // HERO, evolutions show EVO. In the pool we also hint which forms are available.
   const badges = el("div", "badges");
-  if (opts.evolved) badges.appendChild(makeBadge("evo", "EVO"));
   if (opts.champion) badges.appendChild(makeBadge("champ", "👑"));
-  if (opts.evoAvailable && !opts.evolved) badges.appendChild(makeBadge("evo-avail", "EVO?"));
+  else if (opts.evolved) badges.appendChild(makeBadge("evo", "EVO"));
+  else if (opts.hero) badges.appendChild(makeBadge("hero", "HERO"));
+  if (opts.evoAvailable && !opts.evolved && !opts.champion)
+    badges.appendChild(makeBadge("evo-avail", "EVO?"));
+  if (opts.heroAvailable && !opts.hero && !opts.champion)
+    badges.appendChild(makeBadge("hero-avail", "HERO?"));
   if (badges.children.length) node.appendChild(badges);
 
   // art (with graceful fallback to initials over a tinted backdrop)
@@ -355,18 +360,19 @@ function fmt(x) {
 }
 
 /* --------------------------- render deck ----------------------------- */
-// Lay the deck out by slot: evolution (upper-left), then hero (champion),
-// then the wild slot (the 2nd evolution OR 2nd champion, per config.py's slot
-// model), then the remaining cards by elixir. Mirrors the engine's slot rules.
+// Lay the deck out by slot: evolution (upper-left), then hero, then the wild
+// slot (the 2nd evolution OR 2nd hero, per config.py's slot model), then the
+// remaining cards by elixir. Mirrors the engine's slot rules. Forms come from
+// the card's `form` field ("evo"/"hero"/"base"); heroes include champions.
 function orderDeckForDisplay(cards) {
-  const evolved = cards.filter((c) => c.is_evolved);
-  const champions = cards.filter((c) => c.is_champion); // disjoint from evolved
+  const evolved = cards.filter((c) => c.form === "evo");
+  const heroes = cards.filter((c) => c.form === "hero"); // disjoint from evolved
 
   const evoSlot = evolved[0] || null;
-  const heroSlot = champions[0] || null;
+  const heroSlot = heroes[0] || null;
   let wildSlot = null;
-  if (evolved.length >= 2) wildSlot = evolved[1];        // wild used as 2nd evo
-  else if (champions.length >= 2) wildSlot = champions[1]; // wild used as 2nd champ
+  if (evolved.length >= 2) wildSlot = evolved[1];     // wild used as 2nd evo
+  else if (heroes.length >= 2) wildSlot = heroes[1];  // wild used as 2nd hero
 
   const slots = [];
   const used = new Set();
@@ -394,7 +400,8 @@ function renderDeck(deck, opts = {}) {
 
   for (const slot of orderDeckForDisplay(deck.cards)) {
     const card = cardEl(slot.card, {
-      evolved: slot.card.is_evolved,
+      evolved: slot.card.form === "evo",
+      hero: slot.card.form === "hero",
       champion: slot.card.is_champion,
     });
     if (opts.live) card.classList.add("just-updated"); // pulse on real mutations
@@ -411,7 +418,7 @@ function renderDeck(deck, opts = {}) {
   stats.innerHTML = "";
   stats.appendChild(statBox(deck.avg_elixir.toFixed(2), "avg elixir"));
   stats.appendChild(statBox(deck.num_evolutions, "evolutions"));
-  stats.appendChild(statBox(deck.num_champions, "champions"));
+  stats.appendChild(statBox(deck.num_heroes, "heroes"));
   stats.appendChild(statBox(fmt(deck.fitness), "fitness"));
   if (!deck.valid) {
     const s = statBox("✗", "invalid");
@@ -434,4 +441,156 @@ function statBox(val, label) {
 
 function showRunError(msg) {
   $("#result-empty").hidden = false;
-  $("#result-empty").
+  $("#result-empty").textContent = msg;
+  $("#deck-grid").innerHTML = "";
+  $("#deck-stats").hidden = true;
+  $("#deck-stats").innerHTML = "";
+}
+
+/* ---------------------------- card pool ------------------------------ */
+async function loadCards() {
+  try {
+    state.cards = await (await fetch("/api/cards")).json();
+  } catch (_) {
+    $("#pool-count").textContent = "Couldn't load the card pool.";
+    return;
+  }
+  populateElixirFilter();
+  renderPool();
+}
+
+function populateElixirFilter() {
+  const sel = $("#filter-elixir");
+  const values = [...new Set(state.cards.map((c) => c.elixir))].sort((a, b) => a - b);
+  for (const v of values) {
+    const opt = el("option");
+    opt.value = String(v);
+    opt.textContent = `${v} elixir`;
+    sel.appendChild(opt);
+  }
+}
+
+function setupPool() {
+  ["#search", "#filter-rarity", "#filter-type", "#filter-elixir"].forEach((sel) =>
+    $(sel).addEventListener("input", renderPool)
+  );
+}
+
+function renderPool() {
+  const q = $("#search").value.trim().toLowerCase();
+  const rarity = $("#filter-rarity").value;
+  const type = $("#filter-type").value;
+  const elixir = $("#filter-elixir").value;
+
+  const matches = state.cards
+    .filter((c) => {
+      if (q && !c.name.toLowerCase().includes(q)) return false;
+      if (rarity && c.rarity !== rarity) return false;
+      if (type && c.type !== type) return false;
+      if (elixir !== "" && String(c.elixir) !== elixir) return false;
+      return true;
+    })
+    .sort(
+      (a, b) =>
+        a.elixir - b.elixir ||
+        (RARITY_ORDER[a.rarity] ?? 9) - (RARITY_ORDER[b.rarity] ?? 9) ||
+        a.name.localeCompare(b.name)
+    );
+
+  const grid = $("#pool-grid");
+  grid.innerHTML = "";
+  for (const card of matches) {
+    grid.appendChild(
+      cardEl(card, {
+        champion: card.is_champion,
+        evoAvailable: card.has_evolution,
+        heroAvailable: card.is_champion_hero,
+        clickable: true,
+        onClick: openCard,
+      })
+    );
+  }
+
+  const n = matches.length;
+  $("#pool-count").textContent = `${n} card${n === 1 ? "" : "s"}`;
+}
+
+/* ---------------------------- card modal ----------------------------- */
+function openCard(card) {
+  const body = $("#modal-body");
+  body.innerHTML = "";
+
+  const head = el("div", "modal-head");
+
+  const art = el("div", "m-art");
+  const ini = el("div", "initials");
+  ini.textContent = initials(card.name);
+  art.appendChild(ini);
+  const img = el("img", "art");
+  img.alt = card.name;
+  img.src = artUrl(card.name);
+  img.addEventListener("error", () => { art.classList.add("no-art"); img.remove(); });
+  art.appendChild(img);
+
+  const meta = el("div");
+  const h = el("h3");
+  h.textContent = card.name;
+  const sub = el("div", "m-sub");
+  sub.textContent = `${card.rarity} · ${card.type} · ${card.elixir} elixir`;
+  meta.append(h, sub);
+
+  head.append(art, meta);
+  body.appendChild(head);
+
+  const table = el("table", "stat-table");
+  const stats = card.stats || {};
+  const keys = Object.keys(stats);
+  if (keys.length) {
+    for (const k of keys) {
+      const tr = el("tr");
+      const label = el("td");
+      label.textContent = STAT_LABELS[k] || k.replace(/_/g, " ");
+      const val = el("td");
+      val.textContent = stats[k];
+      tr.append(label, val);
+      table.appendChild(tr);
+    }
+  } else {
+    const tr = el("tr");
+    const td = el("td", "none");
+    td.colSpan = 2;
+    td.textContent = "No combat stats recorded for this card.";
+    tr.appendChild(td);
+    table.appendChild(tr);
+  }
+  body.appendChild(table);
+
+  $("#modal").hidden = false;
+}
+
+function closeModal() {
+  $("#modal").hidden = true;
+}
+
+function setupModal() {
+  document.querySelectorAll("#modal [data-close]").forEach((n) =>
+    n.addEventListener("click", closeModal)
+  );
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !$("#modal").hidden) closeModal();
+  });
+}
+
+/* ------------------------------ init --------------------------------- */
+function init() {
+  setupTabs();
+  setupSlider("population");
+  setupSlider("generations");
+  setupOptimize();
+  setupPool();
+  setupModal();
+  loadConfig();
+  loadCards();
+}
+
+document.addEventListener("DOMContentLoaded", init);

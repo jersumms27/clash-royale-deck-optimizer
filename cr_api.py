@@ -72,15 +72,17 @@ def fetch_cards_from_api() -> list[Card]:
 
     cards: list[Card] = []
     for item in payload.get("items", []):
-        icon_urls = item.get("iconUrls", {}) or {}
         cards.append(
             Card(
                 id=item["id"],
                 name=item["name"],
                 elixir=item.get("elixirCost") or 0,
                 rarity=item.get("rarity", "common"),
-                has_evolution="maxEvolutionLevel" in item
-                or "evolutionMedium" in icon_urls,
+                # Only trust an explicit evolution level. The "evolutionMedium"
+                # icon URL is present for many cards without a real evolution, so
+                # using it here over-counted evolutions badly (see load_cards_csv,
+                # which reconciles this against the scraped evo_* data).
+                has_evolution="maxEvolutionLevel" in item,
             )
         )
     if not cards:
@@ -115,13 +117,20 @@ def load_cards_csv(path=config.CARDS_CSV) -> list[Card]:
         for row in csv.DictReader(fh):
             attrs = {a: _to_float(row.get(a)) for a in _NUMERIC_ATTRS}
             attrs.update({a: _to_text(row.get(a)) for a in _TEXT_ATTRS})
+            # The scraped evo data is the ground truth for "has an evolution":
+            # a card with real evo cycles/cost always has one, regardless of what
+            # the (historically over-broad) has_evolution column says.
+            has_real_evo_data = (
+                attrs["evo_cycles"] is not None
+                or attrs["evo_overall_cost"] is not None
+            )
             cards.append(
                 Card(
                     id=int(row["id"]),
                     name=row["name"],
                     elixir=int(row["elixir"]),
                     rarity=row["rarity"],
-                    has_evolution=_to_bool(row["has_evolution"]),
+                    has_evolution=_to_bool(row["has_evolution"]) or has_real_evo_data,
                     **attrs,
                 )
             )

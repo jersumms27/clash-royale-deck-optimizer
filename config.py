@@ -12,9 +12,26 @@ CARDS_CSV = ROOT / "cards.csv"
 # Clash Royale API (tokens are IP-locked; get one at developer.clashroyale.com)
 CR_API_BASE = os.environ.get("CR_API_BASE", "https://api.clashroyale.com/v1")
 
+# Where to look for the API token (never commit the token itself).
+TOKEN_FILE = ROOT / "token.txt"
+
 
 def get_api_token() -> str | None:
-    return "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjQ2M2UwZDFiLWY0YjktNDIyNS1hMTc5LTBmYzg4ZjBjNjI1YSIsImlhdCI6MTc4MTg5ODQzNCwic3ViIjoiZGV2ZWxvcGVyLzk2YzQzZGVlLWVkOWItN2I4ZS1kYmJkLTFhNWFhMDRkNDhjZiIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyIxMDMuNC4xOTIuMzkiXSwidHlwZSI6ImNsaWVudCJ9XX0.q0DaY9bd8wBUx2FbkdMpTZGnUjeubmx4xx1uqEaa2z-kr-GdGpY2EdrTuBtR82fMJVp5P1jhrzqnWH5L0odfcQ"
+    """Return the Clash Royale API token, or None if it isn't configured.
+
+    Resolution order (first hit wins):
+      1. the CR_API_TOKEN environment variable
+      2. a token.txt file next to this script (gitignored)
+    """
+    env = os.environ.get("CR_API_TOKEN")
+    if env and env.strip():
+        return env.strip()
+
+    try:
+        text = TOKEN_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return text or None
 
 
 # Deck rules: 1 evo slot + 1 champion slot + 1 wild slot (wild = 2nd evo OR 2nd champion)
@@ -69,7 +86,7 @@ WIN_CONDITION_BY_NAME = {
 AIR_UNIT_NAMES = {
     "Minions", "Minion Horde", "Mega Minion", "Bats", "Baby Dragon",
     "Inferno Dragon", "Electro Dragon", "Skeleton Dragons", "Balloon",
-    "Lava Hound", "Flying Machine", "Phoenix",
+    "Lava Hound", "Flying Machine", "Phoenix", "Skeleton Barrel",
 }
 
 
@@ -91,10 +108,10 @@ def max_evolutions_allowed(num_champions: int) -> int:
 
 
 # Genetic algorithm
-POPULATION_SIZE = 200
-GENERATIONS = 150
-ELITISM = 4
-TOURNAMENT_SIZE = 5
-CROSSOVER_RATE = 0.85
-MUTATION_RATE = 0.20
+POPULATION_SIZE: int = 1000
+GENERATIONS: int = 1000
+ELITISM: int = 4
+TOURNAMENT_SIZE: int = 5
+CROSSOVER_RATE: int = 0.85
+MUTATION_RATE: int = 0.50
 RANDOM_SEED: int | None = None

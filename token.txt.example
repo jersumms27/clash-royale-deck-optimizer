@@ -1,0 +1,3 @@
+Paste your Clash Royale API token here, then rename this file to token.txt.
+Get one at https://developer.clashroyale.com (tokens are IP-locked).
+Alternatively, set the CR_API_TOKEN environment variable instead.
