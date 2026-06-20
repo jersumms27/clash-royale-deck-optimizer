@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clash Royale Deck Optimizer</title>
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="icon"
+    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👑</text></svg>" />
+</head>
+<body>
+  <div class="bg-glow"></div>
+
+  <header class="site-header">
+    <div class="crown">👑</div>
+    <div class="title-block">
+      <h1>Deck Optimizer</h1>
+      <p class="subtitle">Genetic algorithm &middot; Clash Royale</p>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab is-active" data-tab="optimizer" role="tab">⚔️ Optimizer</button>
+    <button class="tab" data-tab="pool" role="tab">🃏 Card Pool</button>
+  </nav>
+
+  <main class="wrap">
+
+    <!-- ===================== OPTIMIZER TAB ===================== -->
+    <section id="tab-optimizer" class="tab-panel is-active">
+      <div class="panel controls-panel">
+        <h2 class="panel-title">Run the optimizer</h2>
+
+        <div class="controls">
+          <div class="control">
+            <label for="population">Population
+              <span class="val" id="population-val">200</span>
+            </label>
+            <input type="range" id="population" min="2" max="500" step="1" value="200" />
+            <span class="hint">decks per generation</span>
+          </div>
+
+          <div class="control">
+            <label for="generations">Generations
+              <span class="val" id="generations-val">150</span>
+            </label>
+            <input type="range" id="generations" min="1" max="1000" step="1" value="150" />
+            <span class="hint">evolution rounds</span>
+          </div>
+
+          <div class="control">
+            <label for="seed">Random seed</label>
+            <input type="number" id="seed" placeholder="random" class="seed-input" />
+            <span class="hint">blank = random each run</span>
+          </div>
+        </div>
+
+        <button id="run-btn" class="run-btn">
+          <span class="run-btn-label">⚡ Optimize Deck</span>
+        </button>
+
+        <div id="progress" class="progress" hidden>
+          <div class="progress-head">
+            <span id="progress-gen">Generation 0 / 0</span>
+            <span id="progress-fitness">best fitness —</span>
+          </div>
+          <div class="progress-track">
+            <div id="progress-bar" class="progress-bar"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- live evolution view -->
+      <div class="panel live-panel" id="live-panel" hidden>
+        <div class="live-head">
+          <h2 class="panel-title">Evolution in progress</h2>
+          <div id="pop-stats" class="pop-stats"></div>
+        </div>
+        <div class="live-body">
+          <div class="chart-card">
+            <div class="chart-legend">
+              <span class="lg lg-best">Best fitness</span>
+              <span class="lg lg-avg">Population average</span>
+            </div>
+            <canvas id="fitness-chart" height="220"></canvas>
+          </div>
+          <div id="gen-log" class="gen-log" aria-live="polite"></div>
+        </div>
+      </div>
+
+      <!-- result -->
+      <div class="panel result-panel">
+        <div class="result-head">
+          <h2 class="panel-title">Best deck <span id="live-pill" class="live-pill" hidden>● LIVE</span></h2>
+          <div id="deck-stats" class="deck-stats" hidden></div>
+        </div>
+
+        <p id="result-empty" class="empty-state">
+          Set your parameters and hit <strong>Optimize Deck</strong> to evolve an 8-card deck.
+        </p>
+
+        <div id="deck-grid" class="card-grid deck-grid"></div>
+
+        <p id="heuristic-note" class="note" hidden>
+          ⓘ The scoring heuristic is still in progress (currently returns a flat
+          score), so this deck is <strong>valid but not yet ranked</strong>.
+          Fill in <code>heuristic.py</code> and re-run — the UI updates automatically.
+        </p>
+      </div>
+    </section>
+
+    <!-- ===================== CARD POOL TAB ===================== -->
+    <section id="tab-pool" class="tab-panel">
+      <div class="panel">
+        <div class="pool-toolbar">
+          <input type="search" id="search" class="search" placeholder="🔍 Search cards…" />
+          <select id="filter-rarity" class="filter">
+            <option value="">All rarities</option>
+            <option value="common">Common</option>
+            <option value="rare">Rare</option>
+            <option value="epic">Epic</option>
+            <option value="legendary">Legendary</option>
+            <option value="champion">Champion</option>
+          </select>
+          <select id="filter-type" class="filter">
+            <option value="">All types</option>
+            <option value="troop">Troop</option>
+            <option value="building">Building</option>
+            <option value="spell">Spell</option>
+          </select>
+          <select id="filter-elixir" class="filter">
+            <option value="">Any elixir</option>
+          </select>
+          <span id="pool-count" class="pool-count"></span>
+        </div>
+
+        <div id="pool-grid" class="card-grid pool-grid"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    Runs entirely on your machine. Card art © Supercell, via the community
+    <a href="https://github.com/RoyaleAPI/cr-api-assets" target="_blank" rel="noopener">cr-api-assets</a>.
+  </footer>
+
+  <!-- card detail modal -->
+  <div id="modal" class="modal" hidden>
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-card" role="dialog" aria-modal="true">
+      <button class="modal-close" data-close aria-label="Close">✕</button>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
