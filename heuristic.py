@@ -5,10 +5,10 @@ deck.troops, deck.buildings, deck.spells, deck.air_troops, deck.win_conditions,
 deck.primary_win_conditions, deck.card_ids. The deck passed in is always legal.
 
 Card fields:
-  core:  .name .elixir .rarity .type ("troop"/"building"/"spell") .has_evolution
+  core:  .name .elixir .rarity .type ("troop"/"building"/"spell"/None) .has_evolution
          .is_champion .is_champion_hero .air
-         .win_condition ("primary"/"secondary"/"conditional"/"")
-         .spell_size ("small"/"medium"/"large"/"")
+         .win_condition ("primary"/"secondary"/"conditional"/None)
+         .spell_size ("small"/"medium"/"large"/None)
   stats (float or None -- spells have no hitpoints, etc., so guard for None):
          .hitpoints .damage .damage_per_second .attack_period .range .radius
          .lifetime .crown_tower_damage .special_damage

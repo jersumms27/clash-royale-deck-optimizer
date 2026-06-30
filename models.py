@@ -3,19 +3,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 import config
 
 
 @dataclass(frozen=True)
 class Card:
-    # --- core (from the official API) ---
     id: int
     name: str
     elixir: int
     rarity: str
     has_evolution: bool
-    # --- scraped combat stats (from cards.csv after scrape.ipynb; None if unknown) ---
+    is_champion: bool
+    is_champion_hero: bool
+    type: Literal["troop", "building", "spell"] | None
+    win_condition: Literal["primary", "secondary", "conditional"] | None
+    spell_size: Literal["small", "medium", "large"] | None
+    air: bool  # flying troop?
     hitpoints: float | None = None
     damage: float | None = None
     damage_per_second: float | None = None
@@ -25,50 +30,43 @@ class Card:
     lifetime: float | None = None
     crown_tower_damage: float | None = None
     special_damage: float | None = None
-    # --- scraped spawn info ---
     troop_spawned: str | None = None
     spawn_count_period: str | None = None
     max_troops_spawned: str | None = None
-    # --- scraped evolution info ---
     evo_cycles: float | None = None
     evo_overall_cost: float | None = None
     evo_stat_boosts: str | None = None
 
-    @property
-    def is_champion(self) -> bool:
-        return self.rarity.lower() == config.CHAMPION_RARITY
 
-    @property
-    def is_champion_hero(self) -> bool:
-        return self.name in config.CHAMPION_HERO_NAMES
+def build_card(id, name, elixir, rarity, has_evolution, **stats) -> Card:
+    """Create a Card, classifying it from config (type, win condition, etc.)."""
+    card_type = config.CARD_TYPE_OVERRIDES.get(name) or config.TYPE_BY_ID_PREFIX.get(
+        id // 1_000_000
+    )
 
-    @property
-    def type(self) -> str:
-        """'troop', 'building', or 'spell' — from the API id range (with overrides)."""
-        if self.name in config.CARD_TYPE_OVERRIDES:
-            return config.CARD_TYPE_OVERRIDES[self.name]
-        return config.TYPE_BY_ID_PREFIX.get(self.id // 1_000_000, "unknown")
+    if card_type != "spell":
+        spell_size = None
+    elif elixir <= 2:
+        spell_size = "small"
+    elif elixir <= 4:
+        spell_size = "medium"
+    else:
+        spell_size = "large"
 
-    @property
-    def win_condition(self) -> str:
-        """'primary', 'secondary', 'conditional', or '' (not a win condition)."""
-        return config.WIN_CONDITION_BY_NAME.get(self.name, "")
-
-    @property
-    def spell_size(self) -> str:
-        """'small' (<=2), 'medium' (3-4), 'large' (5+) for spells; '' otherwise."""
-        if self.type != "spell":
-            return ""
-        if self.elixir <= 2:
-            return "small"
-        if self.elixir <= 4:
-            return "medium"
-        return "large"
-
-    @property
-    def air(self) -> bool:
-        """True if this is an air (flying) troop."""
-        return self.name in config.AIR_UNIT_NAMES
+    return Card(
+        id=id,
+        name=name,
+        elixir=elixir,
+        rarity=rarity,
+        has_evolution=has_evolution,
+        is_champion=rarity.lower() == config.CHAMPION_RARITY,
+        is_champion_hero=name in config.CHAMPION_HERO_NAMES,
+        type=card_type,
+        win_condition=config.WIN_CONDITION_BY_NAME.get(name),
+        spell_size=spell_size,
+        air=name in config.AIR_UNIT_NAMES,
+        **stats,
+    )
 
 
 class CardPool:

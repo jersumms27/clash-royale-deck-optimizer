@@ -6,7 +6,7 @@ the real list). Flags are approximate and may lag the live meta.
 from __future__ import annotations
 
 from cr_api import save_cards_csv
-from models import Card
+from models import Card, build_card
 
 # (name, elixir, rarity, has_evolution)
 _SAMPLE: list[tuple[str, int, str, bool]] = [
@@ -100,7 +100,7 @@ def build_sample_cards() -> list[Card]:
     cards = []
     for i, (name, elixir, rarity, has_evo) in enumerate(_SAMPLE):
         cards.append(
-            Card(
+            build_card(
                 id=26_000_000 + i,  # synthetic ids (offline only)
                 name=name,
                 elixir=elixir,

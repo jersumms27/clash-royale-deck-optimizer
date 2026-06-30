@@ -8,13 +8,13 @@ import urllib.error
 import urllib.request
 
 import config
-from models import Card, CardPool
+from models import Card, CardPool, build_card
 
 # Base columns written by the API fetch. The scraped attribute columns
 # (hitpoints, damage, ... evo_stat_boosts) are layered onto cards.csv by
 # scrape.ipynb and read back by load_cards_csv, but are not written here.
 CSV_FIELDS = ["id", "name", "elixir", "rarity", "type", "has_evolution",
-              "is_champion_hero", "win_condition", "spell_size", "air"]
+              "is_champion", "is_champion_hero", "win_condition", "spell_size", "air"]
 
 # Scraped attribute columns: numeric ones parsed as float, text ones as str.
 _NUMERIC_ATTRS = ["hitpoints", "damage", "damage_per_second", "attack_period",
@@ -73,7 +73,7 @@ def fetch_cards_from_api() -> list[Card]:
     cards: list[Card] = []
     for item in payload.get("items", []):
         cards.append(
-            Card(
+            build_card(
                 id=item["id"],
                 name=item["name"],
                 elixir=item.get("elixirCost") or 0,
@@ -103,6 +103,7 @@ def save_cards_csv(cards: list[Card], path=config.CARDS_CSV) -> None:
                     "rarity": c.rarity,
                     "type": c.type,
                     "has_evolution": c.has_evolution,
+                    "is_champion": c.is_champion,
                     "is_champion_hero": c.is_champion_hero,
                     "win_condition": c.win_condition,
                     "spell_size": c.spell_size,
@@ -112,25 +113,26 @@ def save_cards_csv(cards: list[Card], path=config.CARDS_CSV) -> None:
 
 
 def load_cards_csv(path=config.CARDS_CSV) -> list[Card]:
+    """Read every field straight from cards.csv -- it's the source of truth.
+    (Classifications are baked in when the file is generated; see build_card.)"""
     cards: list[Card] = []
     with open(path, newline="", encoding="utf-8") as fh:
         for row in csv.DictReader(fh):
             attrs = {a: _to_float(row.get(a)) for a in _NUMERIC_ATTRS}
             attrs.update({a: _to_text(row.get(a)) for a in _TEXT_ATTRS})
-            # The scraped evo data is the ground truth for "has an evolution":
-            # a card with real evo cycles/cost always has one, regardless of what
-            # the (historically over-broad) has_evolution column says.
-            has_real_evo_data = (
-                attrs["evo_cycles"] is not None
-                or attrs["evo_overall_cost"] is not None
-            )
             cards.append(
                 Card(
                     id=int(row["id"]),
                     name=row["name"],
                     elixir=int(row["elixir"]),
                     rarity=row["rarity"],
-                    has_evolution=_to_bool(row["has_evolution"]) or has_real_evo_data,
+                    has_evolution=_to_bool(row["has_evolution"]),
+                    is_champion=_to_bool(row["is_champion"]),
+                    is_champion_hero=_to_bool(row["is_champion_hero"]),
+                    type=_to_text(row["type"]),
+                    win_condition=_to_text(row["win_condition"]),
+                    spell_size=_to_text(row["spell_size"]),
+                    air=_to_bool(row["air"]),
                     **attrs,
                 )
             )
