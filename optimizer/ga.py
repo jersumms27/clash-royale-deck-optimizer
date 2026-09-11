@@ -9,8 +9,8 @@ from __future__ import annotations
 import random
 from typing import Callable
 
-import config
-from models import CardPool, Deck
+from optimizer import config
+from optimizer.models import CardPool, Deck
 
 FitnessFn = Callable[[Deck], float]
 

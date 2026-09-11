@@ -18,7 +18,7 @@ Card fields:
 
 from __future__ import annotations
 
-from models import Deck
+from optimizer.models import Deck
 
 # How much each metric counts. They sum to 1.0, so a deck that scores a perfect
 # 1.0 on every metric gets a final 1.0.

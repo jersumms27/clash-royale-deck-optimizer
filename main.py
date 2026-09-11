@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import argparse
 
-import config
-from cr_api import load_card_pool
-from ga import GeneticAlgorithm
-from heuristic import score
+from optimizer import config
+from optimizer.cr_api import load_card_pool
+from optimizer.ga import GeneticAlgorithm
+from optimizer.heuristic import score
 
 
 def print_deck(deck, fitness: float) -> None:

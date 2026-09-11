@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-import config
+from optimizer import config
 
 
 @dataclass(frozen=True)

@@ -3,7 +3,7 @@
 Run:   python UI/server.py     (works from any directory)
 Then:  your browser opens automatically at the printed URL.
 
-This is a UI-ONLY layer. It imports the existing logic modules
+This is a UI-ONLY layer. It imports the logic modules in optimizer/
 (config / cr_api / ga / heuristic / models) read-only and never modifies them.
 Standard library only -- no extra installs, no build step.
 """
@@ -20,17 +20,17 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-# --- Make the project-root logic modules importable without changing them. ----
+# --- Make the optimizer package importable when run as `python UI/server.py`. ---
 UI_DIR = Path(__file__).resolve().parent
 ROOT = UI_DIR.parent
 sys.path.insert(0, str(ROOT))
 
-import config  # noqa: E402  (import after sys.path tweak, on purpose)
-from cr_api import load_card_pool  # noqa: E402
-from ga import GeneticAlgorithm  # noqa: E402
-from heuristic import score  # noqa: E402
+from optimizer import config  # noqa: E402  (import after sys.path tweak, on purpose)
+from optimizer.cr_api import load_card_pool  # noqa: E402
+from optimizer.ga import GeneticAlgorithm  # noqa: E402
+from optimizer.heuristic import score  # noqa: E402
 
-CARD_ATTRS_CSV = ROOT / "card_attributes.csv"
+CARD_ATTRS_CSV = config.CARD_ATTRIBUTES_CSV
 
 # Static assets we serve out of the UI/ folder.
 _MIME = {

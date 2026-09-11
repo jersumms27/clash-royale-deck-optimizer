@@ -7,8 +7,8 @@ import json
 import urllib.error
 import urllib.request
 
-import config
-from models import Card, CardPool, build_card
+from optimizer import config
+from optimizer.models import Card, CardPool, build_card
 
 # Base columns written by the API fetch. The scraped attribute columns
 # (hitpoints, damage, ... evo_stat_boosts) are layered onto cards.csv by
@@ -53,7 +53,7 @@ def fetch_cards_from_api() -> list[Card]:
     if not token:
         raise RuntimeError(
             "No API token. Get one at https://developer.clashroyale.com, then set "
-            "CR_API_TOKEN or put it in token.txt next to this script."
+            "CR_API_TOKEN or put it in token.txt in the project root."
         )
 
     url = f"{config.CR_API_BASE}/cards"

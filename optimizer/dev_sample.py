@@ -1,12 +1,12 @@
 """Write an offline sample cards.csv for development before you have a token.
-Run: python dev_sample.py  (later, `python main.py --refresh` replaces it with
-the real list). Flags are approximate and may lag the live meta.
+Run: python -m optimizer.dev_sample  (later, `python main.py --refresh` replaces
+it with the real list). Flags are approximate and may lag the live meta.
 """
 
 from __future__ import annotations
 
-from cr_api import save_cards_csv
-from models import Card, build_card
+from optimizer.cr_api import save_cards_csv
+from optimizer.models import Card, build_card
 
 # (name, elixir, rarity, has_evolution)
 _SAMPLE: list[tuple[str, int, str, bool]] = [

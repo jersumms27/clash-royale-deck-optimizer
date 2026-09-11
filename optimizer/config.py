@@ -6,8 +6,11 @@ import os
 from pathlib import Path
 
 # Paths
-ROOT = Path(__file__).resolve().parent
-CARDS_CSV = ROOT / "cards.csv"
+ROOT = Path(__file__).resolve().parent.parent  # project root
+DATA_DIR = ROOT / "data"
+CARDS_CSV = DATA_DIR / "cards.csv"
+CARD_ATTRIBUTES_CSV = DATA_DIR / "card_attributes.csv"
+SCRAPE_CACHE = DATA_DIR / "scrape_cache.html"
 
 # Clash Royale API (tokens are IP-locked; get one at developer.clashroyale.com)
 CR_API_BASE = os.environ.get("CR_API_BASE", "https://api.clashroyale.com/v1")
@@ -21,7 +24,7 @@ def get_api_token() -> str | None:
 
     Resolution order (first hit wins):
       1. the CR_API_TOKEN environment variable
-      2. a token.txt file next to this script (gitignored)
+      2. a token.txt file in the project root (gitignored)
     """
     env = os.environ.get("CR_API_TOKEN")
     if env and env.strip():
