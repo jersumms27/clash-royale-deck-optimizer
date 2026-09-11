@@ -7,3 +7,16 @@ dependencies:
   - pandas
   - requests
   - lxml
+  - matplotlib
+  - pip
+  # PyTorch (learned matchup model). PyTorch no longer ships conda packages, so
+  # it comes from its own pip index: CUDA 12.8 wheels for the RTX 4050.
+  # CPU-only machines: swap the index for https://download.pytorch.org/whl/cpu
+  - pip:
+      - --index-url https://download.pytorch.org/whl/cu128
+      - torch
+variables:
+  # numpy's MKL and the PyTorch wheel each bundle Intel's OpenMP runtime; on
+  # Windows the second one to initialise aborts the process ("OMP: Error #15")
+  # as soon as matplotlib touches numpy after torch. Standard workaround.
+  KMP_DUPLICATE_LIB_OK: "TRUE"

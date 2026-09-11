@@ -38,11 +38,15 @@ class Card:
     evo_stat_boosts: str | None = None
 
 
-def build_card(id, name, elixir, rarity, has_evolution, **stats) -> Card:
-    """Create a Card, classifying it from config (type, win condition, etc.)."""
+def build_card(id, name, elixir, rarity, has_evolution, is_champion_hero=None, **stats) -> Card:
+    """Create a Card, classifying it from config (type, win condition, etc.).
+    is_champion_hero comes from the API when known (see cr_api.card_from_api_item);
+    None falls back to the name list in config (offline dev_sample data)."""
     card_type = config.CARD_TYPE_OVERRIDES.get(name) or config.TYPE_BY_ID_PREFIX.get(
         id // 1_000_000
     )
+    if is_champion_hero is None:
+        is_champion_hero = name in config.CHAMPION_HERO_NAMES
 
     if card_type != "spell":
         spell_size = None
@@ -60,7 +64,7 @@ def build_card(id, name, elixir, rarity, has_evolution, **stats) -> Card:
         rarity=rarity,
         has_evolution=has_evolution,
         is_champion=rarity.lower() == config.CHAMPION_RARITY,
-        is_champion_hero=name in config.CHAMPION_HERO_NAMES,
+        is_champion_hero=is_champion_hero,
         type=card_type,
         win_condition=config.WIN_CONDITION_BY_NAME.get(name),
         spell_size=spell_size,

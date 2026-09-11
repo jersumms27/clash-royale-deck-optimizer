@@ -21,6 +21,7 @@
 
   <nav class="tabs" role="tablist">
     <button class="tab is-active" data-tab="optimizer" role="tab">⚔️ Optimizer</button>
+    <button class="tab" data-tab="matchups" role="tab">🆚 Matchups</button>
     <button class="tab" data-tab="pool" role="tab">🃏 Card Pool</button>
   </nav>
 
@@ -30,6 +31,16 @@
     <section id="tab-optimizer" class="tab-panel is-active">
       <div class="panel controls-panel">
         <h2 class="panel-title">Run the optimizer</h2>
+
+        <!-- scorer picker: which function rates a deck -->
+        <div class="scorer-block">
+          <div class="scorer-label">
+            Score decks with
+            <button id="scorer-rescan" class="link-btn" type="button"
+              title="Re-probe for the trained model without restarting the server">↻ rescan</button>
+          </div>
+          <div id="scorer-picker" class="scorer-picker" role="radiogroup" aria-label="Scorer"></div>
+        </div>
 
         <div class="controls">
           <div class="control">
@@ -55,14 +66,17 @@
           </div>
         </div>
 
-        <button id="run-btn" class="run-btn">
-          <span class="run-btn-label">⚡ Optimize Deck</span>
-        </button>
+        <div class="run-row">
+          <button id="run-btn" class="run-btn">
+            <span class="run-btn-label">⚡ Optimize Deck</span>
+          </button>
+          <button id="stop-btn" class="stop-btn" hidden>■ Stop</button>
+        </div>
 
         <div id="progress" class="progress" hidden>
           <div class="progress-head">
             <span id="progress-gen">Generation 0 / 0</span>
-            <span id="progress-fitness">best fitness —</span>
+            <span id="progress-fitness">best —</span>
           </div>
           <div class="progress-track">
             <div id="progress-bar" class="progress-bar"></div>
@@ -79,7 +93,7 @@
         <div class="live-body">
           <div class="chart-card">
             <div class="chart-legend">
-              <span class="lg lg-best">Best fitness</span>
+              <span class="lg lg-best" id="legend-best">Best fitness</span>
               <span class="lg lg-avg">Population average</span>
             </div>
             <canvas id="fitness-chart" height="220"></canvas>
@@ -101,11 +115,109 @@
 
         <div id="deck-grid" class="card-grid deck-grid"></div>
 
-        <p id="heuristic-note" class="note" hidden>
-          ⓘ The scoring heuristic is still in progress (currently returns a flat
-          score), so this deck is <strong>valid but not yet ranked</strong>.
-          Fill in <code>heuristic.py</code> and re-run — the UI updates automatically.
+        <div id="result-actions" class="result-actions" hidden>
+          <button id="send-a-btn" class="ghost-btn">🆚 Open in Matchups</button>
+          <button id="copy-deck-btn" class="ghost-btn">📋 Copy card list</button>
+        </div>
+
+        <p id="result-note" class="note" hidden></p>
+      </div>
+
+      <!-- matchup breakdown of the best deck vs the meta -->
+      <div class="panel matchups-panel" id="matchups-panel" hidden>
+        <div class="result-head">
+          <h2 class="panel-title">Matchups vs the meta</h2>
+          <div id="matchups-summary" class="deck-stats"></div>
+        </div>
+        <p class="hint-line">
+          How the best deck fares against each meta deck. Bars are
+          <span class="k-win">P(win)</span>; the fitness is the usage-weighted average.
         </p>
+        <div id="matchups-list" class="matchups-list"></div>
+      </div>
+    </section>
+
+    <!-- ===================== MATCHUPS TAB ===================== -->
+    <section id="tab-matchups" class="tab-panel">
+      <div class="panel">
+        <div class="result-head">
+          <h2 class="panel-title">Head to head</h2>
+          <div class="builder-tools">
+            <button id="swap-btn" class="ghost-btn" title="Swap the two decks">⇄ Swap A / B</button>
+          </div>
+        </div>
+        <p id="matchup-unavailable" class="empty-state" hidden></p>
+
+        <div id="h2h" class="h2h">
+          <!-- deck A -->
+          <div class="builder" data-side="a">
+            <div class="builder-head">
+              <h3>Deck A</h3>
+              <span class="builder-status" id="status-a">0 / 8</span>
+            </div>
+            <div class="builder-grid" id="builder-a"></div>
+            <div class="builder-foot">
+              <button class="ghost-btn sm" data-act="best" data-side="a">⚡ Use best deck</button>
+              <div class="dd">
+                <button class="ghost-btn sm" data-act="meta-menu" data-side="a">📈 Load meta deck ▾</button>
+                <div class="dd-menu" id="meta-menu-a" hidden></div>
+              </div>
+              <button class="ghost-btn sm" data-act="clear" data-side="a">✕ Clear</button>
+            </div>
+            <div class="builder-fit" id="fit-a"></div>
+          </div>
+
+          <!-- the verdict -->
+          <div class="vs">
+            <div class="vs-badge">VS</div>
+            <div class="vs-gauge" id="vs-gauge">
+              <div class="vs-fill" id="vs-fill"></div>
+              <div class="vs-mid"></div>
+            </div>
+            <div class="vs-nums">
+              <span id="vs-a" class="vs-num a">—</span>
+              <span id="vs-b" class="vs-num b">—</span>
+            </div>
+            <div class="vs-caption" id="vs-caption">Build two valid decks to compare</div>
+            <div class="vs-sub" id="vs-sub"></div>
+          </div>
+
+          <!-- deck B -->
+          <div class="builder" data-side="b">
+            <div class="builder-head">
+              <h3>Deck B</h3>
+              <span class="builder-status" id="status-b">0 / 8</span>
+            </div>
+            <div class="builder-grid" id="builder-b"></div>
+            <div class="builder-foot">
+              <button class="ghost-btn sm" data-act="best" data-side="b">⚡ Use best deck</button>
+              <div class="dd">
+                <button class="ghost-btn sm" data-act="meta-menu" data-side="b">📈 Load meta deck ▾</button>
+                <div class="dd-menu" id="meta-menu-b" hidden></div>
+              </div>
+              <button class="ghost-btn sm" data-act="clear" data-side="b">✕ Clear</button>
+            </div>
+            <div class="builder-fit" id="fit-b"></div>
+          </div>
+        </div>
+        <p class="hint-line builder-hint">
+          Click an empty slot to add a card · click the form pill on a card to cycle
+          base / <span class="k-evo">EVO</span> / <span class="k-hero">HERO</span> · ✕ removes it.
+        </p>
+      </div>
+
+      <!-- the meta deck set -->
+      <div class="panel" id="meta-panel">
+        <div class="result-head">
+          <h2 class="panel-title">Meta decks</h2>
+          <span id="meta-count" class="pool-count"></span>
+        </div>
+        <p class="hint-line">
+          The opponents the fitness averages over, weighted by ladder usage.
+          Click a deck to load it as A or B.
+        </p>
+        <p id="meta-empty" class="empty-state">Loading…</p>
+        <div id="meta-list" class="meta-list"></div>
       </div>
     </section>
 
@@ -150,6 +262,19 @@
     <div class="modal-card" role="dialog" aria-modal="true">
       <button class="modal-close" data-close aria-label="Close">✕</button>
       <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- card picker (deck builder) -->
+  <div id="picker" class="modal" hidden>
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-card wide" role="dialog" aria-modal="true">
+      <button class="modal-close" data-close aria-label="Close">✕</button>
+      <div class="picker-head">
+        <h3 id="picker-title">Add a card</h3>
+        <input type="search" id="picker-search" class="search" placeholder="🔍 Search cards…" autocomplete="off" />
+      </div>
+      <div id="picker-grid" class="card-grid pool-grid picker-grid"></div>
     </div>
   </div>
 

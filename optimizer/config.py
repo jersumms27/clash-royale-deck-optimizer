@@ -12,6 +12,11 @@ CARDS_CSV = DATA_DIR / "cards.csv"
 CARD_ATTRIBUTES_CSV = DATA_DIR / "card_attributes.csv"
 SCRAPE_CACHE = DATA_DIR / "scrape_cache.html"
 
+# Learned fitness (see data/README.md for the file formats)
+BATTLES_CSV = DATA_DIR / "battles.csv"        # 1v1 battle outcomes (data agent)
+META_DECKS_CSV = DATA_DIR / "meta_decks.csv"  # opponents the GA optimises against
+MODEL_PATH = DATA_DIR / "matchup_model.pt"    # trained P(A beats B) model
+
 # Clash Royale API (tokens are IP-locked; get one at developer.clashroyale.com)
 CR_API_BASE = os.environ.get("CR_API_BASE", "https://api.clashroyale.com/v1")
 
@@ -52,14 +57,16 @@ TYPE_BY_ID_PREFIX = {26: "troop", 27: "building", 28: "spell"}
 # otherwise be misclassified. Heal Spirit was the reworked "Heal" spell.
 CARD_TYPE_OVERRIDES = {"Heal Spirit": "troop", "Spirit Empress": "troop"}
 
-# Cards eligible for the champion/hero slot (name-based; not derivable from the API).
-# Names must match the API's spelling exactly (e.g. "Mini P.E.K.K.A", no trailing dot).
+# Cards eligible for the champion/hero slot. The real build derives this from the
+# API (the "heroMedium" icon; see cr_api.card_from_api_item) -- this list is only
+# the fallback for offline data (dev_sample.py). Names must match the API's
+# spelling exactly (e.g. "Mini P.E.K.K.A", no trailing dot).
 CHAMPION_HERO_NAMES = {
     "Archer Queen", "Mighty Miner", "Skeleton King", "Golden Knight", "Monk",
     "Little Prince", "Goblinstein", "Boss Bandit", "Knight", "Giant",
     "Mini P.E.K.K.A", "Musketeer", "Ice Golem", "Wizard", "Goblins",
     "Mega Minion", "Barbarian Barrel", "Magic Archer", "Balloon", "Bowler",
-    "Dark Prince", "Tombstone",
+    "Dark Prince", "Tombstone", "Berserker", "Ice Wizard", "Valkyrie",
 }
 
 # Win-condition classification (name-based). Cards not listed get "" (empty).
@@ -89,7 +96,7 @@ WIN_CONDITION_BY_NAME = {
 AIR_UNIT_NAMES = {
     "Minions", "Minion Horde", "Mega Minion", "Bats", "Baby Dragon",
     "Inferno Dragon", "Electro Dragon", "Skeleton Dragons", "Balloon",
-    "Lava Hound", "Flying Machine", "Phoenix", "Skeleton Barrel",
+    "Lava Hound", "Flying Machine", "Phoenix", "Skeleton Barrel", "Minion Giant",
 }
 
 
@@ -109,6 +116,13 @@ def max_evolutions_allowed(num_champions: int) -> int:
     wild_used_by_champion = max(0, num_champions - BASE_CHAMPION_SLOTS)
     return BASE_EVOLUTION_SLOTS + (WILD_SLOTS - wild_used_by_champion)
 
+
+# Fitness: "heuristic" (heuristic.py) or "model" (learned_fitness.py; needs
+# MODEL_PATH + META_DECKS_CSV, produced by notebooks/train_model.ipynb).
+FITNESS: str = "heuristic"
+# How many top decks train_model.ipynb keeps as the meta. Fitness cost per
+# generation grows linearly with it (population x META_DECK_COUNT matchups).
+META_DECK_COUNT: int = 300
 
 # Genetic algorithm
 POPULATION_SIZE: int = 1000

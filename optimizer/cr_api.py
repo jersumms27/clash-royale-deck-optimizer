@@ -1,4 +1,8 @@
-"""Fetch the card list from the official CR API and cache it to CSV (stdlib only)."""
+"""Fetch the card list from the official CR API and read/write data/cards.csv (stdlib only).
+
+This module owns the cards.csv *format*. Rebuilding the file from scratch (API
+fetch + wiki scrape + merge) lives in build_dataset.py.
+"""
 
 from __future__ import annotations
 
@@ -10,18 +14,19 @@ import urllib.request
 from optimizer import config
 from optimizer.models import Card, CardPool, build_card
 
-# Base columns written by the API fetch. The scraped attribute columns
-# (hitpoints, damage, ... evo_stat_boosts) are layered onto cards.csv by
-# scrape.ipynb and read back by load_cards_csv, but are not written here.
+# Base columns: straight from the API plus the classifications build_card adds.
 CSV_FIELDS = ["id", "name", "elixir", "rarity", "type", "has_evolution",
               "is_champion", "is_champion_hero", "win_condition", "spell_size", "air"]
 
-# Scraped attribute columns: numeric ones parsed as float, text ones as str.
-_NUMERIC_ATTRS = ["hitpoints", "damage", "damage_per_second", "attack_period",
-                  "range", "radius", "lifetime", "crown_tower_damage",
-                  "special_damage", "evo_cycles", "evo_overall_cost"]
-_TEXT_ATTRS = ["troop_spawned", "spawn_count_period", "max_troops_spawned",
-               "evo_stat_boosts"]
+# Scraped attribute columns, in file order. build_dataset.py fills them in from
+# the Fandom wiki; dev_sample.py leaves them blank.
+COMBAT_ATTRS = ["hitpoints", "damage", "damage_per_second", "attack_period",
+                "range", "radius", "lifetime", "crown_tower_damage", "special_damage"]
+SPAWN_ATTRS = ["troop_spawned", "spawn_count_period", "max_troops_spawned"]
+EVO_ATTRS = ["evo_cycles", "evo_overall_cost", "evo_stat_boosts"]
+ATTRIBUTE_FIELDS = COMBAT_ATTRS + SPAWN_ATTRS + EVO_ATTRS
+# Parsed as float; every other attribute is free text.
+NUMERIC_ATTRS = set(COMBAT_ATTRS) | {"evo_cycles", "evo_overall_cost"}
 
 
 def _to_bool(value: str) -> bool:
@@ -48,7 +53,8 @@ def _to_text(value) -> str | None:
     return s if s and s.lower() != "nan" else None
 
 
-def fetch_cards_from_api() -> list[Card]:
+def fetch_raw_cards() -> list[dict]:
+    """GET /cards from the official API and return the raw `items` list."""
     token = config.get_api_token()
     if not token:
         raise RuntimeError(
@@ -70,46 +76,48 @@ def fetch_cards_from_api() -> list[Card]:
     except urllib.error.URLError as exc:
         raise RuntimeError(f"Could not reach the CR API: {exc.reason}") from exc
 
-    cards: list[Card] = []
-    for item in payload.get("items", []):
-        cards.append(
-            build_card(
-                id=item["id"],
-                name=item["name"],
-                elixir=item.get("elixirCost") or 0,
-                rarity=item.get("rarity", "common"),
-                # Only trust an explicit evolution level. The "evolutionMedium"
-                # icon URL is present for many cards without a real evolution, so
-                # using it here over-counted evolutions badly (see load_cards_csv,
-                # which reconciles this against the scraped evo_* data).
-                has_evolution="maxEvolutionLevel" in item,
-            )
-        )
-    if not cards:
+    items = payload.get("items", [])
+    if not items:
         raise RuntimeError("CR API returned no cards (unexpected response shape).")
-    return cards
+    return items
+
+
+def card_from_api_item(item: dict) -> Card:
+    """One raw API card -> Card (classified via build_card; no stat columns)."""
+    rarity = item.get("rarity", "common")
+    icons = item.get("iconUrls", {})
+    return build_card(
+        id=item["id"],
+        name=item["name"],
+        elixir=item.get("elixirCost") or 0,
+        rarity=rarity,
+        # The icon set is the reliable signal for both forms. maxEvolutionLevel
+        # also counts hero form (hero-only cards report 2, evo+hero 3), so it
+        # can't be used on its own. build_dataset reports any card where
+        # has_evolution disagrees with the wiki's evolution table.
+        has_evolution="evolutionMedium" in icons,
+        # Champions are heroes by definition and carry no heroMedium icon.
+        is_champion_hero=rarity.lower() == config.CHAMPION_RARITY or "heroMedium" in icons,
+    )
+
+
+def fetch_cards_from_api() -> list[Card]:
+    return [card_from_api_item(item) for item in fetch_raw_cards()]
+
+
+def card_to_row(card: Card) -> dict:
+    """A Card as one cards.csv row (None -> blank cell)."""
+    row = {f: getattr(card, f) for f in CSV_FIELDS + ATTRIBUTE_FIELDS}
+    return {k: ("" if v is None else v) for k, v in row.items()}
 
 
 def save_cards_csv(cards: list[Card], path=config.CARDS_CSV) -> None:
+    """Write the full cards.csv schema (base + attribute columns)."""
     with open(path, "w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=CSV_FIELDS)
+        writer = csv.DictWriter(fh, fieldnames=CSV_FIELDS + ATTRIBUTE_FIELDS)
         writer.writeheader()
         for c in cards:
-            writer.writerow(
-                {
-                    "id": c.id,
-                    "name": c.name,
-                    "elixir": c.elixir,
-                    "rarity": c.rarity,
-                    "type": c.type,
-                    "has_evolution": c.has_evolution,
-                    "is_champion": c.is_champion,
-                    "is_champion_hero": c.is_champion_hero,
-                    "win_condition": c.win_condition,
-                    "spell_size": c.spell_size,
-                    "air": c.air,
-                }
-            )
+            writer.writerow(card_to_row(c))
 
 
 def load_cards_csv(path=config.CARDS_CSV) -> list[Card]:
@@ -118,8 +126,10 @@ def load_cards_csv(path=config.CARDS_CSV) -> list[Card]:
     cards: list[Card] = []
     with open(path, newline="", encoding="utf-8") as fh:
         for row in csv.DictReader(fh):
-            attrs = {a: _to_float(row.get(a)) for a in _NUMERIC_ATTRS}
-            attrs.update({a: _to_text(row.get(a)) for a in _TEXT_ATTRS})
+            attrs = {
+                a: (_to_float if a in NUMERIC_ATTRS else _to_text)(row.get(a))
+                for a in ATTRIBUTE_FIELDS
+            }
             cards.append(
                 Card(
                     id=int(row["id"]),
@@ -140,9 +150,11 @@ def load_cards_csv(path=config.CARDS_CSV) -> list[Card]:
 
 
 def load_card_pool(refresh: bool = False) -> CardPool:
+    """Load cards.csv. With refresh=True (or no file yet) rebuild it from scratch
+    first -- API fetch *and* wiki scrape -- so the stat columns are never lost."""
     if refresh or not config.CARDS_CSV.exists():
-        cards = fetch_cards_from_api()
-        save_cards_csv(cards)
-    else:
-        cards = load_cards_csv()
-    return CardPool(cards)
+        # Needs pandas/requests/lxml; imported lazily so the optimizer itself stays stdlib-only.
+        from optimizer.build_dataset import build_cards_csv
+
+        build_cards_csv()
+    return CardPool(load_cards_csv())

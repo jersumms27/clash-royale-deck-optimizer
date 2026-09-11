@@ -117,6 +117,9 @@ class GeneticAlgorithm:
         self.mutation_rate = mutation_rate
         self.rng = random.Random(seed)
         self._fitness_cache: dict[tuple, float] = {}
+        # Fitness functions that can score many decks at once (e.g. the learned
+        # model on a GPU) expose score_batch(list[Deck]) -> list[float].
+        self._score_batch = getattr(fitness_fn, "score_batch", None)
 
     def fitness(self, deck: Deck) -> float:
         k = deck.key
@@ -125,6 +128,19 @@ class GeneticAlgorithm:
             cached = self.fitness_fn(deck)
             self._fitness_cache[k] = cached
         return cached
+
+    def _prime_cache(self, population: list[Deck]) -> None:
+        """Score every not-yet-cached deck in one batched call, if supported."""
+        if self._score_batch is None:
+            return
+        pending: dict[tuple, Deck] = {}
+        for deck in population:
+            k = deck.key
+            if k not in self._fitness_cache and k not in pending:
+                pending[k] = deck
+        if pending:
+            scores = self._score_batch(list(pending.values()))
+            self._fitness_cache.update(zip(pending.keys(), scores))
 
     def _tournament(self, population: list[Deck]) -> Deck:
         k = min(self.tournament_size, len(population))
@@ -183,6 +199,7 @@ class GeneticAlgorithm:
         best: Deck | None = None
 
         for gen in range(self.generations):
+            self._prime_cache(population)
             population.sort(key=self.fitness, reverse=True)
             if best is None or self.fitness(population[0]) > self.fitness(best):
                 best = population[0]
